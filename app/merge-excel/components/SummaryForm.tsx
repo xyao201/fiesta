@@ -1,6 +1,6 @@
 import React from 'react';
 import { Form, Select, Input, Radio, Button, Space } from 'antd';
-import { ColumnEnums, CustomColumn } from '../types';
+import { ColumnEnums, CustomColumn, CalculationType } from '../types';
 import { formatDateString } from '../utils';
 
 interface SummaryFormProps {
@@ -8,6 +8,16 @@ interface SummaryFormProps {
   columnEnums: ColumnEnums;
   form: any;
 }
+
+const getAvailableCalculationTypes = (columnEnum: ColumnEnums[string] | undefined): CalculationType[] => {
+  if (!columnEnum) return [];
+  
+  if (columnEnum.type === 'number') {
+    return ['sum', 'uniqueCount', 'count', 'average'];
+  }
+  
+  return ['uniqueCount', 'count'];
+};
 
 export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, form }) => {
   return (
@@ -26,25 +36,78 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
         </Select>
       </Form.Item>
       
-      <Form.Item
-        name="sumColumns"
-        label="选择需要计算的数值列"
-        rules={[{ required: true, message: '请选择至少一个数值列' }]}
-      >
-        <Select mode="multiple" placeholder="请选择需要计算的数值列">
-          {columns.map(col => {
-            const columnEnum = columnEnums[col.dataIndex];
-            if (columnEnum?.type === 'number') {
-              return (
-                <Select.Option key={col.dataIndex} value={col.dataIndex}>
-                  {col.title}
-                </Select.Option>
-              );
-            }
-            return null;
-          })}
-        </Select>
-      </Form.Item>
+      <Form.List name="sumColumns">
+        {(fields, { add, remove }) => (
+          <>
+            {fields.map((field, index) => (
+              <Space key={field.key} align="baseline">
+                <Form.Item
+                  name={[field.name, 'column']}
+                  rules={[{ required: true, message: '请选择列' }]}
+                >
+                  <Select 
+                    style={{ width: 200 }} 
+                    placeholder="选择列"
+                    onChange={(value) => {
+                      form.setFieldsValue({
+                        sumColumns: {
+                          [field.name]: {
+                            calculationType: undefined
+                          }
+                        }
+                      });
+                    }}
+                  >
+                    {columns.map(col => {
+                      const columnEnum = columnEnums[col.dataIndex];
+                      if (columnEnum) {
+                        return (
+                          <Select.Option key={col.dataIndex} value={col.dataIndex}>
+                            {col.title}
+                          </Select.Option>
+                        );
+                      }
+                      return null;
+                    })}
+                  </Select>
+                </Form.Item>
+                
+                <Form.Item
+                  name={[field.name, 'calculationType']}
+                  rules={[{ required: true, message: '请选择计算方式' }]}
+                >
+                  <Select 
+                    style={{ width: 150 }} 
+                    placeholder="选择计算方式"
+                  >
+                    {(() => {
+                      const columnField = form.getFieldValue(['sumColumns', field.name, 'column']);
+                      const columnEnum = columnField ? columnEnums[columnField] : undefined;
+                      const availableTypes = getAvailableCalculationTypes(columnEnum);
+                      
+                      return availableTypes.map(type => (
+                        <Select.Option key={type} value={type}>
+                          {type === 'sum' ? '求和' : 
+                           type === 'uniqueCount' ? '去重计数' : 
+                           type === 'count' ? '不去重计数' : 
+                           '求平均'}
+                        </Select.Option>
+                      ));
+                    })()}
+                  </Select>
+                </Form.Item>
+                
+                <Button type="link" onClick={() => remove(field.name)}>
+                  删除
+                </Button>
+              </Space>
+            ))}
+            <Button type="dashed" onClick={() => add()} block>
+              添加计算列
+            </Button>
+          </>
+        )}
+      </Form.List>
       
       <Form.List name="customColumns">
         {(fields, { add, remove }) => (
@@ -135,7 +198,7 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                               >
                                 {(() => {
                                   const columnField = form.getFieldValue(['customColumns', field.name, 'conditions', conditionField.name, 'column']);
-                                  const columnEnum = columnField ? columnEnums[columnField] : null;
+                                  const columnEnum = columnField ? columnEnums[columnField] : undefined;
                                   
                                   const options = [
                                     <Select.Option key="eq" value="eq">等于</Select.Option>,
@@ -186,7 +249,7 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                                 {(() => {
                                   const columnField = form.getFieldValue(['customColumns', field.name, 'conditions', conditionField.name, 'column']);
                                   const operator = form.getFieldValue(['customColumns', field.name, 'conditions', conditionField.name, 'operator']);
-                                  const columnEnum = columnEnums[columnField];
+                                  const columnEnum = columnField ? columnEnums[columnField] : undefined;
 
                                   if (operator === 'earliest' || operator === 'latest') {
                                     return (
@@ -197,18 +260,18 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                                   }
                                   
                                   if (columnField && columnEnums[columnField]) {
-                                    return Array.from(columnEnum.values).map(value => {
-                                      if (columnEnum.type === 'date') {
-                                        const formattedValue = formatDateString(value);
+                                    return Array.from(columnEnum?.values || new Set<string>()).map(value => {
+                                      if (columnEnum?.type === 'date') {
+                                        const formattedValue = formatDateString(value as string);
                                         return (
-                                          <Select.Option key={value} value={value}>
+                                          <Select.Option key={value as string} value={value as string}>
                                             {formattedValue}
                                           </Select.Option>
                                         );
                                       }
                                       return (
-                                        <Select.Option key={value} value={value}>
-                                          {value}
+                                        <Select.Option key={value as string} value={value as string}>
+                                          {value as string}
                                         </Select.Option>
                                       );
                                     });
@@ -237,7 +300,7 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                     <Select placeholder="选择值列">
                       {columns.map(col => {
                         const columnEnum = columnEnums[col.dataIndex];
-                        if (columnEnum?.type === 'number') {
+                        if (columnEnum) {
                           return (
                             <Select.Option key={col.dataIndex} value={col.dataIndex}>
                               {col.title}
@@ -246,6 +309,28 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                         }
                         return null;
                       })}
+                    </Select>
+                  </Form.Item>
+
+                  <Form.Item
+                    name={[field.name, 'calculationType']}
+                    rules={[{ required: true, message: '请选择计算方式' }]}
+                  >
+                    <Select placeholder="选择计算方式">
+                      {(() => {
+                        const valueColumn = form.getFieldValue(['customColumns', field.name, 'valueColumn']);
+                        const columnEnum = valueColumn ? columnEnums[valueColumn] : undefined;
+                        const availableTypes = getAvailableCalculationTypes(columnEnum);
+                        
+                        return availableTypes.map(type => (
+                          <Select.Option key={type} value={type}>
+                            {type === 'sum' ? '求和' : 
+                             type === 'uniqueCount' ? '去重计数' : 
+                             type === 'count' ? '不去重计数' : 
+                             '求平均'}
+                          </Select.Option>
+                        ));
+                      })()}
                     </Select>
                   </Form.Item>
                   

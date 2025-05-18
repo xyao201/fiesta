@@ -31,7 +31,7 @@ export default function MergeExcelPage() {
   const [progress, setProgress] = useState(0);
   const [loadingText, setLoadingText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const uploadTimeoutRef = useRef<NodeJS.Timeout>();
+  const uploadTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const processingFilesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -193,14 +193,12 @@ export default function MergeExcelPage() {
       
       // 确保在合并数据前显示正确的状态
       setLoadingText('正在合并数据...');
-      console.time('mergeData');
       const { columns, data } = mergeData(allData.map(item => item.data),allData[0].headers);
       setColumns(columns.map((col) => ({ title: col, dataIndex: col, key: col })));
       setTableData(data);
       const newColumnEnums: ColumnEnums = {};
       updateColumnEnums(data, newColumnEnums);
       setColumnEnums(newColumnEnums);
-      console.timeEnd('mergeData');
       // 只有在所有数据处理完成后才显示完成状态
       setProgress(100);
       setLoadingText('合并完成！');
@@ -277,19 +275,59 @@ export default function MergeExcelPage() {
         if (!groupedData.has(groupKey)) {
           groupedData.set(groupKey, {
             ...groupByColumns.reduce((acc: Record<string, any>, col: string) => ({ ...acc, [col]: row[col] }), {}),
-            ...sumColumns.reduce((acc: Record<string, number>, col: string) => ({ ...acc, [col]: 0 }), {}),
-            ...customColumns.reduce((acc: Record<string, number>, col: CustomColumn) => ({ ...acc, [col.name]: 0 }), {})
+            ...sumColumns.reduce((acc: Record<string, any>, col: { column: string, calculationType: string }) => {
+              const columnEnum = columnEnums[col.column];
+              if (columnEnum?.type === 'number') {
+                return { ...acc, [col.column]: 0 };
+              }
+              return { ...acc, [col.column]: new Set() };
+            }, {}),
+            ...customColumns.reduce((acc: Record<string, any>, col: CustomColumn) => {
+              const columnEnum = columnEnums[col.valueColumn];
+              if (columnEnum?.type === 'number') {
+                return { ...acc, [col.name]: 0 };
+              }
+              return { ...acc, [col.name]: new Set() };
+            }, {})
           });
         }
         
         const group = groupedData.get(groupKey);
         
-        sumColumns.forEach((col: string) => {
-          group[col] += Number(row[col]) || 0;
+        sumColumns.forEach((col: { column: string, calculationType: string }) => {
+          const columnEnum = columnEnums[col.column];
+          const value = row[col.column];
+          
+          if (columnEnum?.type === 'number') {
+            switch (col.calculationType) {
+              case 'sum':
+                group[col.column] += Number(value) || 0;
+                break;
+              case 'average':
+                group[col.column] += Number(value) || 0;
+                break;
+              case 'count':
+                group[col.column] += 1;
+                break;
+              case 'uniqueCount':
+                group[col.column] = new Set([...group[col.column], value]).size;
+                break;
+            }
+          } else {
+            switch (col.calculationType) {
+              case 'count':
+                group[col.column] += 1;
+                break;
+              case 'uniqueCount':
+                group[col.column].add(value);
+                break;
+            }
+          }
         });
         
         customColumns.forEach((customCol: CustomColumn) => {
-          const { name, conditions, valueColumn, logic } = customCol;
+          const { name, conditions, valueColumn, logic, calculationType } = customCol;
+          const columnEnum = columnEnums[valueColumn];
           
           const conditionResult = conditions.every((condition: CustomColumnCondition) => {
             const { column, operator, value } = condition;
@@ -354,28 +392,102 @@ export default function MergeExcelPage() {
               default: return false;
             }
           })) {
-            group[name] += Number(row[valueColumn]) || 0;
+            const value = row[valueColumn];
+            
+            if (columnEnum?.type === 'number') {
+              switch (calculationType) {
+                case 'sum':
+                  group[name] += Number(value) || 0;
+                  break;
+                case 'average':
+                  group[name] += Number(value) || 0;
+                  break;
+                case 'count':
+                  group[name] += 1;
+                  break;
+                case 'uniqueCount':
+                  group[name] = new Set([...group[name], value]).size;
+                  break;
+              }
+            } else {
+              switch (calculationType) {
+                case 'count':
+                  group[name] += 1;
+                  break;
+                case 'uniqueCount':
+                  group[name].add(value);
+                  break;
+              }
+            }
           }
         });
       });
       
-      const resultData = Array.from(groupedData.values());
+      const resultData = Array.from(groupedData.values()).map(group => {
+        const result = { ...group };
+        
+        // 处理平均值
+        sumColumns.forEach((col: { column: string, calculationType: string }) => {
+          if (col.calculationType === 'average' && columnEnums[col.column]?.type === 'number') {
+            result[col.column] = result[col.column] / tableData.length;
+          }
+        });
+        
+        customColumns.forEach((col: CustomColumn) => {
+          if (col.calculationType === 'average' && columnEnums[col.valueColumn]?.type === 'number') {
+            result[col.name] = result[col.name] / tableData.length;
+          }
+        });
+        
+        return result;
+      });
+      
       setSummaryResult(resultData);
       
       const resultColumns = [
         ...groupByColumns.map((col: string) => ({ title: col, dataIndex: col, key: col })),
-        ...sumColumns.map((col: string) => ({ 
-          title: `${col} (汇总)`, 
-          dataIndex: col, 
-          key: col,
-          render: (val: number) => val.toFixed(2)
-        })),
-        ...customColumns.map((col: CustomColumn) => ({
-          title: col.name,
-          dataIndex: col.name,
-          key: col.name,
-          render: (val: number) => val.toFixed(2)
-        }))
+        ...sumColumns.map((col: { column: string, calculationType: string }) => {
+          const columnEnum = columnEnums[col.column];
+          const title = columnEnum?.type === 'number' ? 
+            `${col.column} (${col.calculationType === 'sum' ? '求和' : 
+                          col.calculationType === 'average' ? '平均' : 
+                          col.calculationType === 'uniqueCount' ? '去重计数' : 
+                          '不去重计数'})` :
+            `${col.column} (${col.calculationType === 'uniqueCount' ? '去重计数' : '不去重计数'})`;
+          
+          return {
+            title,
+            dataIndex: col.column,
+            key: col.column,
+            render: (val: number | Set<any>) => {
+              if (val instanceof Set) {
+                return val.size;
+              }
+              return typeof val === 'number' ? val.toFixed(2) : val;
+            }
+          };
+        }),
+        ...customColumns.map((col: CustomColumn) => {
+          const columnEnum = columnEnums[col.valueColumn];
+          const title = columnEnum?.type === 'number' ? 
+            `${col.name} (${col.calculationType === 'sum' ? '求和' : 
+                          col.calculationType === 'average' ? '平均' : 
+                          col.calculationType === 'uniqueCount' ? '去重计数' : 
+                          '不去重计数'})` :
+            `${col.name} (${col.calculationType === 'uniqueCount' ? '去重计数' : '不去重计数'})`;
+          
+          return {
+            title,
+            dataIndex: col.name,
+            key: col.name,
+            render: (val: number | Set<any>) => {
+              if (val instanceof Set) {
+                return val.size;
+              }
+              return typeof val === 'number' ? val.toFixed(2) : val;
+            }
+          };
+        })
       ];
       
       setSummaryColumns(resultColumns);

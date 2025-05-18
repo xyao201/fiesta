@@ -103,6 +103,7 @@ export const getAllSheetData = (workbook: XLSX.WorkBook, filename: string) => {
 
     // 获取列名（第一行数据）
     headers = Object.keys(filteredJson[0] as object);
+    headers.push('source');
     const sourceValue = singleSheet ? filename : `${filename}-${sheetName}`;
     console.time('getAllSheetData' + sheetName + filename);
     const withSource = filteredJson.map((row: any,index: number) => ({ ...row, source: sourceValue, __rowId: `row_${index}` }));
@@ -148,7 +149,7 @@ export const updateColumnEnums = (data: any[], columnEnums: ColumnEnums) => {
   data.forEach((row,index) => {
     // if ( index >= 10) return;
     Object.entries(row).forEach(([col, value]) => {
-      if (col === '__rowId' || col === 'source') return;
+      if (col === '__rowId') return;
       
       if (!columnEnums[col]) {
         columnEnums[col] = {
