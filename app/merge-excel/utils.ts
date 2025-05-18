@@ -52,14 +52,16 @@ export const getAllSheetData = (workbook: XLSX.WorkBook, filename: string) => {
   let allData: any[] = [];
   const sheetNames = workbook.SheetNames;
   const singleSheet = sheetNames.length === 1;
-  
+  let headers: string[] = [];
+  console.time('getAllSheetData1');
+
   sheetNames.forEach((sheetName: string) => {
     const sheet = workbook.Sheets[sheetName];
-    
     // 获取所有数据用于检查前后10行
     const allDataPreData = XLSX.utils.sheet_to_json(sheet, { 
       defval: "", 
       header: 1,
+      range: 'A1:A5',
       blankrows: false
     });
 
@@ -80,57 +82,71 @@ export const getAllSheetData = (workbook: XLSX.WorkBook, filename: string) => {
       }
     }
 
-    // 检查后10行
-    for (let i = allDataPreData.length - 1; i >= Math.max(0, allDataPreData.length - 10); i--) {
-      const row = allDataPreData[i] as any[];
-      const isCommentRow = row.some((cell: any) => 
-        typeof cell === 'string' && cell.trim().startsWith('#')
-      );
-      if (isCommentRow) {
-        endRow = i;
-      } else {
-        break;
-      }
-    }
     // 使用计算出的起始和结束行获取数据
     const json = XLSX.utils.sheet_to_json(sheet, { 
       defval: "", 
       range: startRow,
       blankrows: false
-    }).slice(0, endRow - startRow - 1);
-    
+    });
     if (json.length === 0) return;
-    
+
+    // 从数组末尾开始过滤注释行
+    let filteredJson = [...json];
+    for (let i = filteredJson.length - 1; i >= 0; i--) {
+      const firstValue = Object.values(filteredJson[i] as Record<string, unknown>)[0];
+      if (typeof firstValue === 'string' && firstValue.trim().startsWith('#')) {
+        filteredJson.splice(i, 1);
+      } else {
+        break; // 一旦遇到非注释行就停止
+      }
+    }
+
+    // 获取列名（第一行数据）
+    headers = Object.keys(filteredJson[0] as object);
     const sourceValue = singleSheet ? filename : `${filename}-${sheetName}`;
-    const withSource = json.map((row: any) => ({ ...row, source: sourceValue }));
+    console.time('getAllSheetData' + sheetName + filename);
+    const withSource = filteredJson.map((row: any,index: number) => ({ ...row, source: sourceValue, __rowId: `row_${index}` }));
     allData.push(...withSource);
+    console.timeEnd('getAllSheetData' + sheetName + filename);
+    console.timeEnd('getAllSheetData1');
+
+    // 返回列名和数据
+    return {
+      headers,
+      data: allData
+    };
   });
   
-  return allData;
+  return {
+    headers,
+    data: allData
+  };
 };
 
 // 合并数据
-export const mergeData = (dataArr: any[][]) => {
-  const allColumns = Array.from(
-    new Set(dataArr.flat().reduce((cols: string[], row) => cols.concat(Object.keys(row)), []))
-  );
+export const mergeData = (dataArr: any[][],headers: string[]) => {
+  // const allColumns = Array.from(
+  //   new Set([dataArr[0]].flat().reduce((cols: string[], row) => cols.concat(Object.keys(row)), []))
+  // );
   
-  let rowId = 0;
+  // let rowId = 0;
   const merged = dataArr.flat().map((row: Record<string, any>) => {
-    const newRow: Record<string, any> = {};
-    allColumns.forEach((col: string) => {
-      newRow[col] = row[col] ?? "";
-    });
-    newRow.__rowId = `row_${rowId++}`;
-    return newRow;
+    // const newRow: Record<string, any> = {};
+    // headers.forEach((col: string) => {
+    //   newRow[col] = row[col] ?? "";
+    // });
+    // newRow.__rowId = `row_${rowId++}`;
+    // row.__rowId = `row_${rowId++}`;
+    return row;
   });
   
-  return { columns: allColumns, data: merged };
+  return { columns: headers, data: merged };
 };
 
 // 更新列枚举
 export const updateColumnEnums = (data: any[], columnEnums: ColumnEnums) => {
-  data.forEach(row => {
+  data.forEach((row,index) => {
+    // if ( index >= 10) return;
     Object.entries(row).forEach(([col, value]) => {
       if (col === '__rowId' || col === 'source') return;
       
@@ -141,7 +157,6 @@ export const updateColumnEnums = (data: any[], columnEnums: ColumnEnums) => {
           type: 'text'
         };
       }
-      console.log(columnEnums)
       const enumObj = columnEnums[col];
       if (enumObj.values.size < 100) {
         enumObj.values.add(String(value));

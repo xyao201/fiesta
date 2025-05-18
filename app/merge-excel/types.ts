@@ -16,15 +16,28 @@ export interface CustomColumnCondition {
   value: string;
 }
 
+export type CalculationType = 'sum' | 'uniqueCount' | 'count' | 'average';
+
 export interface CustomColumn {
   name: string;
   conditions: CustomColumnCondition[];
   valueColumn: string;
   logic: 'and' | 'or';
+  calculationType: CalculationType;
+}
+
+export interface SummaryColumn {
+  column: string;
+  calculationType: CalculationType;
 }
 
 export interface SummaryFormValues {
   groupByColumns: string[];
-  sumColumns: string[];
+  sumColumns: SummaryColumn[];
   customColumns: CustomColumn[];
+}
+
+export interface FileData {
+  headers: string[];
+  data: any[];
 } 

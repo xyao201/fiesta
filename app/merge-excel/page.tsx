@@ -1,11 +1,11 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Upload, Button, Table, message, Modal, Space, Form, Spin, Progress } from "antd";
 import { UploadOutlined, DownloadOutlined, BarChartOutlined, ReloadOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
-import { ColumnEnums, CustomColumn, CustomColumnCondition } from "./types";
-import { getAllSheetData, mergeData, updateColumnEnums } from "./utils";
+import { ColumnEnums, CustomColumn, CustomColumnCondition, FileData } from "./types";
+import { getAllSheetData, mergeData, updateColumnEnums, formatDateString } from "./utils";
 import { SummaryForm } from "./components/SummaryForm";
 import { SummaryResult } from "./components/SummaryResult";
 
@@ -30,6 +30,9 @@ export default function MergeExcelPage() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [loadingText, setLoadingText] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const uploadTimeoutRef = useRef<NodeJS.Timeout>();
+  const processingFilesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (columns.length > 0) {
@@ -68,16 +71,44 @@ export default function MergeExcelPage() {
     }
   };
 
+  // 添加防抖处理函数
+  const debouncedHandleUpload = (fileList: File[]) => {
+    if (uploadTimeoutRef.current) {
+      clearTimeout(uploadTimeoutRef.current);
+    }
+
+    uploadTimeoutRef.current = setTimeout(() => {
+      handleUpload(fileList);
+    }, 300);
+  };
+
   const handleUpload = async (fileList: File[]) => {
+    // 检查是否正在处理
+    if (isProcessing) {
+      message.warning('正在处理文件，请稍候...');
+      return;
+    }
+
+    // 检查是否有重复文件
+    const newFiles = fileList.filter(file => !processingFilesRef.current.has(file.name));
+    if (newFiles.length === 0) {
+      return;
+    }
+
     try {
+      setIsProcessing(true);
       setLoading(true);
       setProgress(0);
       setLoadingText('正在解析文件...');
       
-      const allData: any[][] = [];
+      // 将新文件添加到处理集合中
+      newFiles.forEach(file => processingFilesRef.current.add(file.name));
       
+      const allData: FileData[] = [];
+      
+      console.time('handleUpload');
       // 使用 Promise.all 并行处理文件
-      const filePromises = fileList.map(async (file, index) => {
+      const filePromises = newFiles.map(async (file, index) => {
         const data = await file.arrayBuffer();
         let workbook;
         
@@ -88,34 +119,37 @@ export default function MergeExcelPage() {
           workbook = XLSX.read(data);
         }
         
-        const sheetData = getAllSheetData(workbook, file.name);
+        const { headers, data: sheetData } = getAllSheetData(workbook, file.name);
         if (sheetData.length > 0) {
-          allData.push(sheetData);
+          allData.push({
+            headers,
+            data: sheetData
+          });
         }
         
         // 更新进度
-        const newProgress = Math.round(((index + 1) / fileList.length) * 50);
+        const newProgress = Math.round(((index + 1) / newFiles.length) * 50);
         setProgress(newProgress);
-        setLoadingText(`正在解析文件... (${index + 1}/${fileList.length})`);
+        setLoadingText(`正在解析文件... (${index + 1}/${newFiles.length})`);
       });
 
       await Promise.all(filePromises);
-      
+      console.timeEnd('handleUpload');
       setLoadingText('正在合并数据...');
       setProgress(60);
+
       // 获取所有列名
-      const allColumns = Array.from(
-        new Set(allData.flat().reduce((cols: string[], row) => cols.concat(Object.keys(row)), []))
-      ).filter(col => col !== 'source' && col !== '__rowId');
-      
+      const allHeaders = allData.map(item => item.headers).flat();
+      const uniqueHeaders = Array.from(new Set(allHeaders)).filter(col => col !== 'source' && col !== '__rowId');
       // 检查列名一致性
-      const columnSets = allData.map(data => new Set(data.flatMap(row => Object.keys(row))));
       const diffItems: string[] = [];
       
-      allColumns.forEach(col => {
-        if (!columnSets.every(set => set.has(col))) {
-          diffItems.push(col);
-        }
+      allData.forEach(({ headers }) => {
+        uniqueHeaders.forEach(col => {
+          if (!headers.includes(col)) {
+            diffItems.push(col);
+          }
+        });
       });
       
       setProgress(80);
@@ -135,7 +169,7 @@ export default function MergeExcelPage() {
           cancelText: '取消',
           onOk: async () => {
             setLoadingText('正在合并数据...');
-            const { columns, data } = mergeData(allData);
+            const { columns, data } = mergeData(allData.map(item => item.data),allData[0].headers);
             setColumns(columns.map((col) => ({ title: col, dataIndex: col, key: col })));
             setTableData(data);
             const newColumnEnums: ColumnEnums = {};
@@ -159,13 +193,14 @@ export default function MergeExcelPage() {
       
       // 确保在合并数据前显示正确的状态
       setLoadingText('正在合并数据...');
-      const { columns, data } = mergeData(allData);
+      console.time('mergeData');
+      const { columns, data } = mergeData(allData.map(item => item.data),allData[0].headers);
       setColumns(columns.map((col) => ({ title: col, dataIndex: col, key: col })));
       setTableData(data);
       const newColumnEnums: ColumnEnums = {};
       updateColumnEnums(data, newColumnEnums);
       setColumnEnums(newColumnEnums);
-      
+      console.timeEnd('mergeData');
       // 只有在所有数据处理完成后才显示完成状态
       setProgress(100);
       setLoadingText('合并完成！');
@@ -177,6 +212,10 @@ export default function MergeExcelPage() {
       setLoading(false);
       setProgress(0);
       message.error("解析 Excel/CSV 文件失败");
+    } finally {
+      // 清理处理状态
+      newFiles.forEach(file => processingFilesRef.current.delete(file.name));
+      setIsProcessing(false);
     }
   };
 
@@ -347,11 +386,55 @@ export default function MergeExcelPage() {
   };
 
   // 优化表格列配置
-  const optimizedColumns = columns.map(col => ({
-    ...col,
-    width: 150, // 设置固定列宽
-    ellipsis: true, // 文本溢出时显示省略号
-  }));
+  const optimizedColumns = columns.map(col => {
+    const columnEnum = columnEnums[col.dataIndex];
+    const baseConfig = {
+      ...col,
+      width: 150, // 设置固定列宽
+      ellipsis: true, // 文本溢出时显示省略号
+    };
+
+    // 根据列类型添加筛选器
+    if (columnEnum) {
+      if (columnEnum.type === 'date') {
+        return {
+          ...baseConfig,
+          filters: Array.from(columnEnum.values).map(value => ({
+            text: formatDateString(value),
+            value: value
+          })),
+          onFilter: (value: string, record: any) => record[col.dataIndex] === value,
+          sorter: (a: any, b: any) => new Date(a[col.dataIndex]).getTime() - new Date(b[col.dataIndex]).getTime()
+        };
+      } else if (columnEnum.type === 'text') {
+        return {
+          ...baseConfig,
+          filters: Array.from(columnEnum.values).map(value => ({
+            text: value,
+            value: value
+          })),
+          onFilter: (value: string, record: any) => record[col.dataIndex] === value,
+          sorter: (a: any, b: any) => String(a[col.dataIndex]).localeCompare(String(b[col.dataIndex]))
+        };
+      } else if (columnEnum.type === 'number') {
+        return {
+          ...baseConfig,
+          sorter: (a: any, b: any) => Number(a[col.dataIndex]) - Number(b[col.dataIndex])
+        };
+      }
+    }
+
+    return baseConfig;
+  });
+
+  // 在组件卸载时清理
+  useEffect(() => {
+    return () => {
+      if (uploadTimeoutRef.current) {
+        clearTimeout(uploadTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div style={{ padding: 24 }}>
@@ -383,11 +466,14 @@ export default function MergeExcelPage() {
               beforeUpload={() => false}
               onChange={(info: any) => {
                 const files = info.fileList.map((f: any) => f.originFileObj).filter(Boolean) as File[];
-                handleUpload(files);
+                debouncedHandleUpload(files);
               }}
               showUploadList={true}
+              disabled={isProcessing}
             >
-              <Button icon={<UploadOutlined />}>上传 Excel/CSV 文件（支持多选）</Button>
+              <Button icon={<UploadOutlined />} disabled={isProcessing}>
+                上传 Excel/CSV 文件（支持多选）
+              </Button>
             </Upload>
             <Button
               icon={<DownloadOutlined />}
