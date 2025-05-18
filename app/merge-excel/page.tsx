@@ -32,31 +32,40 @@ export default function MergeExcelPage() {
   const [loadingText, setLoadingText] = useState('');
 
   useEffect(() => {
-    const savedConfig = localStorage.getItem('summaryConfig');
-    if (savedConfig) {
-      try {
-        const config = JSON.parse(savedConfig);
-        setCachedSummaryConfig(config);
-      } catch (error) {
-        console.error('Failed to parse cached summary config:', error);
+    if (columns.length > 0) {
+      const columnKey = columns.map(col => col.dataIndex[0]).join('');
+      const savedConfig = localStorage.getItem(`summaryConfig_${columnKey}`);
+      if (savedConfig) {
+        try {
+          const config = JSON.parse(savedConfig);
+          setCachedSummaryConfig(config);
+        } catch (error) {
+          console.error('Failed to parse cached summary config:', error);
+        }
       }
     }
-  }, []);
+  }, [columns]);
 
   const saveSummaryConfig = (config: {
     groupByColumns: string[];
     sumColumns: string[];
     customColumns: CustomColumn[];
   }) => {
-    localStorage.setItem('summaryConfig', JSON.stringify(config));
-    setCachedSummaryConfig(config);
+    if (columns.length > 0) {
+      const columnKey = columns.map(col => col.dataIndex[0]).join('');
+      localStorage.setItem(`summaryConfig_${columnKey}`, JSON.stringify(config));
+      setCachedSummaryConfig(config);
+    }
   };
 
   const resetSummaryConfig = () => {
-    localStorage.removeItem('summaryConfig');
-    setCachedSummaryConfig(null);
-    summaryForm.resetFields();
-    message.success('汇总配置已重置');
+    if (columns.length > 0) {
+      const columnKey = columns.map(col => col.dataIndex[0]).join('');
+      localStorage.removeItem(`summaryConfig_${columnKey}`);
+      setCachedSummaryConfig(null);
+      summaryForm.resetFields();
+      message.success('汇总配置已重置');
+    }
   };
 
   const handleUpload = async (fileList: File[]) => {
@@ -66,7 +75,6 @@ export default function MergeExcelPage() {
       setLoadingText('正在解析文件...');
       
       const allData: any[][] = [];
-      const allHeaders: string[][] = [];
       
       // 使用 Promise.all 并行处理文件
       const filePromises = fileList.map(async (file, index) => {
@@ -80,26 +88,10 @@ export default function MergeExcelPage() {
           workbook = XLSX.read(data);
         }
         
-        const sheetNames = workbook.SheetNames;
-        const singleSheet = sheetNames.length === 1;
-        
-        sheetNames.forEach((sheetName: string) => {
-          const sheet = workbook.Sheets[sheetName];
-          const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-          if (json.length === 0) return;
-          
-          const columns = Object.keys(json[0] || {});
-          const firstCol = columns[0];
-          const filtered = json.filter((row: any) => {
-            const val = row[firstCol];
-            return !(typeof val === 'string' && val.trim().startsWith('#'));
-          });
-          
-          if (filtered.length === 0) return;
-          allHeaders.push(columns);
-        });
-        
-        allData.push(getAllSheetData(workbook, file.name));
+        const sheetData = getAllSheetData(workbook, file.name);
+        if (sheetData.length > 0) {
+          allData.push(sheetData);
+        }
         
         // 更新进度
         const newProgress = Math.round(((index + 1) / fileList.length) * 50);
@@ -111,14 +103,17 @@ export default function MergeExcelPage() {
       
       setLoadingText('正在合并数据...');
       setProgress(60);
+      // 获取所有列名
+      const allColumns = Array.from(
+        new Set(allData.flat().reduce((cols: string[], row) => cols.concat(Object.keys(row)), []))
+      ).filter(col => col !== 'source' && col !== '__rowId');
       
-      const headerSet = allHeaders.map(cols => new Set(cols));
-      let allCols: Set<string> = new Set();
-      headerSet.forEach(set => set.forEach(col => allCols.add(col)));
-      
+      // 检查列名一致性
+      const columnSets = allData.map(data => new Set(data.flatMap(row => Object.keys(row))));
       const diffItems: string[] = [];
-      allCols.forEach(col => {
-        if (!headerSet.every(set => set.has(col))) {
+      
+      allColumns.forEach(col => {
+        if (!columnSets.every(set => set.has(col))) {
           diffItems.push(col);
         }
       });

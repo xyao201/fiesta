@@ -28,7 +28,8 @@ export const formatDateString = (str: string): string => {
 
 // 检查是否为纯数字
 export const isNumericString = (str: string): boolean => {
-  return /^-?\d*\.?\d+$/.test(str);
+  // 支持正负号、小数点后两位的数字格式
+  return !isNaN(Number(str));
 };
 
 // 判断列类型
@@ -54,19 +55,54 @@ export const getAllSheetData = (workbook: XLSX.WorkBook, filename: string) => {
   
   sheetNames.forEach((sheetName: string) => {
     const sheet = workbook.Sheets[sheetName];
-    const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    
+    // 获取所有数据用于检查前后10行
+    const allDataPreData = XLSX.utils.sheet_to_json(sheet, { 
+      defval: "", 
+      header: 1,
+      blankrows: false
+    });
+
+    // 检查前10行和后10行
+    let startRow = 0;
+    let endRow = allDataPreData.length;
+
+    // 检查前10行
+    for (let i = 0; i < Math.min(10, allDataPreData.length); i++) {
+      const row = allDataPreData[i] as any[];
+      const isCommentRow = row.some((cell: any) => 
+        typeof cell === 'string' && cell.trim().startsWith('#')
+      );
+      if (isCommentRow) {
+        startRow = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    // 检查后10行
+    for (let i = allDataPreData.length - 1; i >= Math.max(0, allDataPreData.length - 10); i--) {
+      const row = allDataPreData[i] as any[];
+      const isCommentRow = row.some((cell: any) => 
+        typeof cell === 'string' && cell.trim().startsWith('#')
+      );
+      if (isCommentRow) {
+        endRow = i;
+      } else {
+        break;
+      }
+    }
+    // 使用计算出的起始和结束行获取数据
+    const json = XLSX.utils.sheet_to_json(sheet, { 
+      defval: "", 
+      range: startRow,
+      blankrows: false
+    }).slice(0, endRow - startRow - 1);
+    
     if (json.length === 0) return;
     
-    const columns = Object.keys(json[0] || {});
-    const firstCol = columns[0];
-    const filtered = json.filter((row: any) => {
-      const val = row[firstCol];
-      return !(typeof val === 'string' && val.trim().startsWith('#'));
-    });
-    
-    if (filtered.length === 0) return;
     const sourceValue = singleSheet ? filename : `${filename}-${sheetName}`;
-    const withSource = filtered.map((row: any) => ({ ...row, source: sourceValue }));
+    const withSource = json.map((row: any) => ({ ...row, source: sourceValue }));
     allData.push(...withSource);
   });
   
@@ -105,7 +141,7 @@ export const updateColumnEnums = (data: any[], columnEnums: ColumnEnums) => {
           type: 'text'
         };
       }
-      
+      console.log(columnEnums)
       const enumObj = columnEnums[col];
       if (enumObj.values.size < 100) {
         enumObj.values.add(String(value));
