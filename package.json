@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.8",
     "@types/file-saver": "^2.0.7",
     "@types/xlsx": "^0.0.35",
     "antd": "^5.25.1",
