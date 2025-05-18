@@ -138,7 +138,8 @@ export default function MergeExcelPage() {
           ),
           okText: '继续合并',
           cancelText: '取消',
-          onOk: () => {
+          onOk: async () => {
+            setLoadingText('正在合并数据...');
             const { columns, data } = mergeData(allData);
             setColumns(columns.map((col) => ({ title: col, dataIndex: col, key: col })));
             setTableData(data);
@@ -147,10 +148,9 @@ export default function MergeExcelPage() {
             setColumnEnums(newColumnEnums);
             setProgress(100);
             setLoadingText('合并完成！');
-            setTimeout(() => {
-              setLoading(false);
-              setProgress(0);
-            }, 1000);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            setLoading(false);
+            setProgress(0);
             message.success("Excel/CSV 文件解析并合并成功！");
           },
           onCancel: () => {
@@ -162,18 +162,21 @@ export default function MergeExcelPage() {
         return;
       }
       
+      // 确保在合并数据前显示正确的状态
+      setLoadingText('正在合并数据...');
       const { columns, data } = mergeData(allData);
       setColumns(columns.map((col) => ({ title: col, dataIndex: col, key: col })));
       setTableData(data);
       const newColumnEnums: ColumnEnums = {};
       updateColumnEnums(data, newColumnEnums);
       setColumnEnums(newColumnEnums);
+      
+      // 只有在所有数据处理完成后才显示完成状态
       setProgress(100);
       setLoadingText('合并完成！');
-      setTimeout(() => {
-        setLoading(false);
-        setProgress(0);
-      }, 1000);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setLoading(false);
+      setProgress(0);
       message.success("Excel/CSV 文件解析并合并成功！");
     } catch (err) {
       setLoading(false);
