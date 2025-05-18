@@ -43,7 +43,7 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
               <Space key={field.key} align="baseline">
                 <Form.Item
                   name={[field.name, 'column']}
-                  rules={[{ required: true, message: '请选择列' }]}
+                  rules={[{ required: false, message: '请选择列' }]}
                 >
                   <Select 
                     style={{ width: 200 }} 
