@@ -1,5 +1,5 @@
 import React from 'react';
-import { Form, Select, Input, Radio, Button, Space } from 'antd';
+import { Form, Select, Input, Radio, Button, Space, Col, Row, Divider } from 'antd';
 import { ColumnEnums, CustomColumn, CalculationType } from '../types';
 import { formatDateString } from '../utils';
 
@@ -102,9 +102,10 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                 </Button>
               </Space>
             ))}
-            <Button type="dashed" onClick={() => add()} block>
+            <Button type="dashed" onClick={() => add()} block style={{ marginBottom: 16 }}>
               添加计算列
             </Button>
+            
           </>
         )}
       </Form.List>
@@ -124,6 +125,9 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                   
                   <Form.Item
                     name={[field.name, 'logic']}
+                    label="条件逻辑"
+                    layout="horizontal"
+                    style={{ marginBottom: 0 }}
                     rules={[{ required: true, message: '请选择条件逻辑' }]}
                   >
                     <Radio.Group>
@@ -131,7 +135,7 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                       <Radio value="or">或</Radio>
                     </Radio.Group>
                   </Form.Item>
-                  
+                  <Divider style={{ margin: 6 }} />
                   <Form.List name={[field.name, 'conditions']}>
                     {(conditionFields, { add: addCondition, remove: removeCondition }) => (
                       <>
@@ -292,47 +296,61 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                       </>
                     )}
                   </Form.List>
+                  <Divider style={{ margin: 6 }} />
+                  <Row>
+                    <Col span={8} style={{ marginRight: 16 }}>
+                      <Form.Item
+                        name={[field.name, 'valueColumn']}
+                        label="值列"
+                        layout="horizontal"
+                        // wrapperCol={{ span: 12 }}
+                        rules={[{ required: true, message: '请选择值列' }]}
+                      >
+                        <Select placeholder="选择值列">
+                          {columns.map(col => {
+                            const columnEnum = columnEnums[col.dataIndex];
+                            if (columnEnum) {
+                              return (
+                                <Select.Option key={col.dataIndex} value={col.dataIndex}>
+                                  {col.title}
+                                </Select.Option>
+                              );
+                            }
+                            return null;
+                          })}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    
+                    <Col span={8}>
+                      <Form.Item
+                        name={[field.name, 'calculationType']}
+                        label="计算方式"
+                        layout="horizontal"
+                        // wrapperCol={{ span: 8 }}
+                        rules={[{ required: true, message: '请选择计算方式' }]}
+                      >
+                        <Select placeholder="选择计算方式">
+                          {(() => {
+                            const valueColumn = form.getFieldValue(['customColumns', field.name, 'valueColumn']);
+                            const columnEnum = valueColumn ? columnEnums[valueColumn] : undefined;
+                            const availableTypes = getAvailableCalculationTypes(columnEnum);
+                            
+                            return availableTypes.map(type => (
+                              <Select.Option key={type} value={type}>
+                                {type === 'sum' ? '求和' : 
+                                type === 'uniqueCount' ? '去重计数' : 
+                                type === 'count' ? '不去重计数' : 
+                                '求平均'}
+                              </Select.Option>
+                            ));
+                          })()}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                  </Row>
                   
-                  <Form.Item
-                    name={[field.name, 'valueColumn']}
-                    rules={[{ required: true, message: '请选择值列' }]}
-                  >
-                    <Select placeholder="选择值列">
-                      {columns.map(col => {
-                        const columnEnum = columnEnums[col.dataIndex];
-                        if (columnEnum) {
-                          return (
-                            <Select.Option key={col.dataIndex} value={col.dataIndex}>
-                              {col.title}
-                            </Select.Option>
-                          );
-                        }
-                        return null;
-                      })}
-                    </Select>
-                  </Form.Item>
-
-                  <Form.Item
-                    name={[field.name, 'calculationType']}
-                    rules={[{ required: true, message: '请选择计算方式' }]}
-                  >
-                    <Select placeholder="选择计算方式">
-                      {(() => {
-                        const valueColumn = form.getFieldValue(['customColumns', field.name, 'valueColumn']);
-                        const columnEnum = valueColumn ? columnEnums[valueColumn] : undefined;
-                        const availableTypes = getAvailableCalculationTypes(columnEnum);
-                        
-                        return availableTypes.map(type => (
-                          <Select.Option key={type} value={type}>
-                            {type === 'sum' ? '求和' : 
-                             type === 'uniqueCount' ? '去重计数' : 
-                             type === 'count' ? '不去重计数' : 
-                             '求平均'}
-                          </Select.Option>
-                        ));
-                      })()}
-                    </Select>
-                  </Form.Item>
+                  
                   
                   <Button type="link" onClick={() => remove(field.name)}>
                     删除自定义列

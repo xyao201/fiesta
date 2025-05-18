@@ -45,3 +45,6 @@ a {
   max-height: 150px;
   overflow-y: scroll;
 }
+.ant-form-item {
+  margin-bottom: 12;
+}
