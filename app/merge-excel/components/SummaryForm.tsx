@@ -306,7 +306,13 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                         // wrapperCol={{ span: 12 }}
                         rules={[{ required: true, message: '请选择值列' }]}
                       >
-                        <Select placeholder="选择值列">
+                        <Select placeholder="选择值列" onChange={(value) => {
+                          form.setFieldsValue({
+                            customColumns: {
+                              [field.name]: { valueColumn: value }
+                            }
+                          });
+                        }}>
                           {columns.map(col => {
                             const columnEnum = columnEnums[col.dataIndex];
                             if (columnEnum) {
@@ -335,7 +341,7 @@ export const SummaryForm: React.FC<SummaryFormProps> = ({ columns, columnEnums, 
                             const valueColumn = form.getFieldValue(['customColumns', field.name, 'valueColumn']);
                             const columnEnum = valueColumn ? columnEnums[valueColumn] : undefined;
                             const availableTypes = getAvailableCalculationTypes(columnEnum);
-                            
+                            debugger
                             return availableTypes.map(type => (
                               <Select.Option key={type} value={type}>
                                 {type === 'sum' ? '求和' : 
