@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from "react";
 import { Upload, Button, Table, message, Modal, Space, Form, Spin, Progress } from "antd";
 import { UploadOutlined, DownloadOutlined, BarChartOutlined, ReloadOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
-import { saveAs } from "file-saver";
 import { ColumnEnums, CustomColumn, CustomColumnCondition, FileData } from "./types";
 import { getAllSheetData, mergeData, updateColumnEnums, formatDateString } from "./utils";
 import { SummaryForm } from "./components/SummaryForm";
@@ -217,13 +216,67 @@ export default function MergeExcelPage() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!tableData.length) return;
-    const ws = XLSX.utils.json_to_sheet(tableData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Merged");
-    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    saveAs(new Blob([wbout], { type: "application/octet-stream" }), "merged.xlsx");
+    
+    try {
+      setLoading(true);
+      setLoadingText('正在准备导出...');
+      setProgress(0);
+
+      const BATCH_SIZE = 10000;
+      const totalBatches = Math.ceil(tableData.length / BATCH_SIZE);
+      let csvContent = '';
+      
+      // 添加表头
+      const headers = columns.map(col => col.title).join(',');
+      csvContent += headers + '\n';
+      
+      // 分批处理数据
+      for (let i = 0; i < totalBatches; i++) {
+        const start = i * BATCH_SIZE;
+        const end = Math.min(start + BATCH_SIZE, tableData.length);
+        const batch = tableData.slice(start, end);
+        
+        // 处理每一行数据
+        const rows = batch.map(row => {
+          return columns.map(col => {
+            const value = row[col.dataIndex];
+            // 处理特殊字符，确保CSV格式正确
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          }).join(',');
+        }).join('\n');
+        
+        csvContent += rows + '\n';
+        
+        // 更新进度
+        const progress = Math.round(((i + 1) / totalBatches) * 100);
+        setProgress(progress);
+        setLoadingText(`正在导出数据... ${progress}%`);
+      }
+      
+      // 创建并下载文件
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'merged.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      setProgress(100);
+      setLoadingText('导出完成！');
+      message.success('文件导出成功！');
+    } catch (error) {
+      console.error('导出失败:', error);
+      message.error('导出失败，请重试');
+    } finally {
+      setLoading(false);
+      setProgress(0);
+    }
   };
 
   const handleSummary = () => {
